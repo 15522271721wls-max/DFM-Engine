@@ -1,0 +1,6 @@
+streamlit
+python-pptx
+requests
+zhipuai
+python-docx
+openai
