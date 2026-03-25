@@ -11,6 +11,46 @@ import streamlit.components.v1 as components
 # === 网页基础设置 ===
 st.set_page_config(page_title="DFM生成引擎", page_icon="⚙️", layout="centered")
 
+# ==========================================
+#           🚨 专属系统防盗门 (拦截器)
+# ==========================================
+def check_password():
+    """验证密码的回调函数"""
+    if st.session_state["password_input"] == "JINYA888":
+        st.session_state["authenticated"] = True
+    else:
+        st.session_state["authenticated"] = False
+        st.error("❌ 邀请码错误或已失效，请联系系统管理员获取！")
+
+# 初始化会话状态
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+# 如果没有通过验证，显示登录拦截屏并停止执行后续所有代码
+if not st.session_state["authenticated"]:
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #1E3A8A; font-size: 3rem;'>🔒 JINYA 智绘终端</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #6B7280; font-size: 1.2rem; margin-bottom: 2rem;'>内部专属自动化演示系统，请输入授权邀请码解锁</p>", unsafe_allow_html=True)
+    
+    # 居中布局密码框
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # 输入框
+        st.text_input(
+            "邀请码", 
+            type="password", 
+            key="password_input", 
+            label_visibility="collapsed", 
+            placeholder="请输入邀请码 (如: 123456)"
+        )
+        # 验证按钮
+        st.button("🔓 验证并解锁系统", on_click=check_password, use_container_width=True)
+    
+    # 强制停止！不让未授权访客看到后面的代码和界面
+    st.stop()
+# ==========================================
+
+
 # === 高级 CSS 魔法 ===
 st.markdown("""
 <style>
@@ -42,15 +82,15 @@ st.markdown("""
     /* 9. 强制拉宽左侧边栏，确保文字完整展示 */
     section[data-testid="stSidebar"] { min-width: 360px !important; max-width: 400px !important; }
     
-    /* 10. 精准替换上传框的所有英文，并将按钮变蓝 */
-    [data-testid="stFileUploadDropzone"] button {
+    /* 10. 【终极防漏靶】精准替换整个上传组件内部的英文与按钮，兼容所有系统，支持黑白模式 */
+    div[data-testid="stFileUploader"] button {
         background: linear-gradient(90deg, #1E3A8A, #3B82F6) !important;
         border: none !important;
         border-radius: 8px !important;
         color: transparent !important;
         position: relative;
     }
-    [data-testid="stFileUploadDropzone"] button::after {
+    div[data-testid="stFileUploader"] button::after {
         content: "浏览本地文件" !important;
         position: absolute;
         color: white !important;
@@ -60,22 +100,23 @@ st.markdown("""
         font-weight: bold;
         white-space: nowrap;
     }
-    [data-testid="stFileUploadDropzone"] button:hover {
+    div[data-testid="stFileUploader"] button:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3) !important;
     }
-    [data-testid="stFileUploadDropzone"] [data-testid="stMarkdownContainer"] p { font-size: 0 !important; }
-    [data-testid="stFileUploadDropzone"] [data-testid="stMarkdownContainer"] p::after {
+    div[data-testid="stFileUploader"] [data-testid="stMarkdownContainer"] p { font-size: 0 !important; }
+    div[data-testid="stFileUploader"] [data-testid="stMarkdownContainer"] p::after {
         content: "拖拽文件至此区域" !important;
         font-size: 16px !important;
         font-weight: 600 !important;
-        color: #31333F !important;
+        color: var(--text-color) !important; 
     }
-    [data-testid="stFileUploadDropzone"] small { font-size: 0 !important; }
-    [data-testid="stFileUploadDropzone"] small::after {
+    div[data-testid="stFileUploader"] small { font-size: 0 !important; }
+    div[data-testid="stFileUploader"] small::after {
         content: "单文件上限 200MB (格式: DOCX, MD, TXT, PPTX)" !important;
         font-size: 13px !important;
-        color: #868D9B !important;
+        color: var(--text-color) !important;
+        opacity: 0.6;
     }
     
     /* 11. 【优雅的跑马灯特效】让必读标题多色交替缓慢变色 */
@@ -92,7 +133,6 @@ st.markdown("""
     div[data-testid="stExpander"] summary p {
         font-weight: 900 !important;
         font-size: 1.15rem !important;
-        /* 3s 跑完一圈，速度放缓，更显高级且不刺眼 */
         animation: rainbowFlash 3s linear infinite; 
     }
 </style>
@@ -138,6 +178,34 @@ def get_english_translation(chinese_title):
     for k, v in title_dict.items():
         if k in chinese_title: return v
     return "CHAPTER OVERVIEW"
+
+# === 新增：API 真实连通性验证函数 ===
+def validate_api_key(api_key, provider, base_url=None):
+    try:
+        if "智谱" in provider:
+            if "." not in api_key:
+                return False, "❌ 格式错误：智谱 API Key 必须包含小数点 (格式: id.secret)。"
+            client = ZhipuAI(api_key=api_key)
+            # 发送一个极其微小的测试请求，探测云端连通性
+            client.chat.completions.create(
+                model="glm-4-flash", 
+                messages=[{"role": "user", "content": "1"}],
+                max_tokens=1
+            )
+            return True, "✅ 智谱引擎连接成功，授权已就绪！"
+        else:
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            # 向 OpenAI 或中转站请求模型列表，探测连通性
+            client.models.list()
+            return True, "✅ 视觉引擎连接成功，授权已就绪！"
+    except Exception as e:
+        err_str = str(e).lower()
+        if "401" in err_str or "auth" in err_str or "invalid" in err_str or "api_key" in err_str:
+            return False, "❌ 凭证无效：请检查您的 API Key 是否填写正确或已被封禁！"
+        elif "url" in err_str or "connection" in err_str or "timeout" in err_str or "resolve" in err_str:
+            return False, "❌ 网络错误：无法连接到接口，请检查 Base URL 是否正确填写！"
+        else:
+            return False, f"❌ 验证失败：{e}"
 
 def create_ppt(parsed_slides, template_bytes, api_key, ai_provider, base_url=None, model_name=None):
     if not parsed_slides or not template_bytes: return None
@@ -228,9 +296,18 @@ with st.sidebar.form(key='api_form'):
         
     api_key_input = st.text_input("API 凭证 (API Key)", type="password", placeholder="填入以激活自动画图功能...")
     
+    # === 更新：加入真实云端连通性验证 ===
     submit_btn = st.form_submit_button("✓ 保存并验证配置", use_container_width=True)
     if submit_btn:
-        if api_key_input: st.success(f"✅ 引擎授权已就绪！")
+        if api_key_input:
+            with st.spinner("🔌 正在连接云端验证凭证..."):
+                is_valid, msg = validate_api_key(api_key_input, ai_provider, base_url)
+                if is_valid:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+        else:
+            st.warning("⚠️ 请先填入 API 凭证！")
 
 st.sidebar.markdown("""
 <div style="cursor: pointer; color: #6B7280; font-size: 0.85rem; padding-top: 10px;">
@@ -253,7 +330,6 @@ st.info("""
 st.markdown("<br>", unsafe_allow_html=True)
 
 # === AI 提示词与一键复制按钮 ===
-# 定义提示词文本
 ai_prompt_text = """# Role (角色定位)
 你是一位拥有10年经验的资深非标自动化机械工程师。你需要根据我提供的项目需求，撰写一份极其专业的《详细设计方案 (DFM)》。
 
@@ -301,7 +377,6 @@ ai_prompt_text = """# Role (角色定位)
 with st.expander("！！注意！！使用本引擎前必读！！", expanded=False):
     st.markdown("如果您使用大模型（如 DeepSeek、Kimi 等）帮您起草 DFM 方案，**请点击下方按钮一键复制专用指令发送给 AI**。这样 AI 就能生成完美适配本软件规则的文档。")
     
-    # 注入自带动画反馈的纯前端一键复制按钮
     components.html(
         f"""
         <script>
@@ -381,7 +456,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 st.markdown("#### 02. 上传 PPT 模板")
 with st.container(border=True):
-    uploaded_template = st.file_uploader("请上传最新的 DFM模板.pptx", type=["pptx"])
+    uploaded_template = st.file_uploader("占位标签", type=["pptx"], label_visibility="collapsed")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
