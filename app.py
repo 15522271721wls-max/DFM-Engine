@@ -1,5 +1,6 @@
 import streamlit as st
 from pptx import Presentation
+from pptx.dml.color import RGBColor
 import io
 import requests
 from zhipuai import ZhipuAI
@@ -29,13 +30,11 @@ if "authenticated" not in st.session_state:
 # 如果没有通过验证，显示登录拦截屏并停止执行后续所有代码
 if not st.session_state["authenticated"]:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.markdown("<h1 style='text-align: center; color: #1E3A8A; font-size: 3rem;'>🔒 JINYA 智绘终端</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #1E3A8A; font-size: 3rem;'>🔒 DFM生成引擎</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #6B7280; font-size: 1.2rem; margin-bottom: 2rem;'>内部专属自动化演示系统，请输入授权邀请码解锁</p>", unsafe_allow_html=True)
     
-    # 居中布局密码框
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # 输入框
         st.text_input(
             "邀请码", 
             type="password", 
@@ -43,10 +42,8 @@ if not st.session_state["authenticated"]:
             label_visibility="collapsed", 
             placeholder="请输入邀请码 (如: 123456)"
         )
-        # 验证按钮
         st.button("🔓 验证并解锁系统", on_click=check_password, use_container_width=True)
     
-    # 强制停止！不让未授权访客看到后面的代码和界面
     st.stop()
 # ==========================================
 
@@ -82,15 +79,16 @@ st.markdown("""
     /* 9. 强制拉宽左侧边栏，确保文字完整展示 */
     section[data-testid="stSidebar"] { min-width: 360px !important; max-width: 400px !important; }
     
-    /* 10. 【终极防漏靶】精准替换整个上传组件内部的英文与按钮，兼容所有系统，支持黑白模式 */
-    div[data-testid="stFileUploader"] button {
+    /* 10. 🎯 【终极防漏靶：彻底解决垃圾桶重叠问题】 🎯 */
+    /* 仅精准狙击拖拽区域内的按钮，绝对不碰下方上传后的文件列表！ */
+    [data-testid="stFileUploaderDropzone"] button {
         background: linear-gradient(90deg, #1E3A8A, #3B82F6) !important;
         border: none !important;
         border-radius: 8px !important;
         color: transparent !important;
         position: relative;
     }
-    div[data-testid="stFileUploader"] button::after {
+    [data-testid="stFileUploaderDropzone"] button::after {
         content: "浏览本地文件" !important;
         position: absolute;
         color: white !important;
@@ -100,24 +98,32 @@ st.markdown("""
         font-weight: bold;
         white-space: nowrap;
     }
-    div[data-testid="stFileUploader"] button:hover {
+    [data-testid="stFileUploaderDropzone"] button:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3) !important;
     }
-    div[data-testid="stFileUploader"] [data-testid="stMarkdownContainer"] p { font-size: 0 !important; }
-    div[data-testid="stFileUploader"] [data-testid="stMarkdownContainer"] p::after {
+    
+    /* 狙击垃圾桶，恢复原状 */
+    div[data-testid="stUploadedFile"] button {
+        background: transparent !important;
+        color: inherit !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+    div[data-testid="stUploadedFile"] button::after {
+        display: none !important;
+    }
+
+    [data-testid="stFileUploaderDropzone"] [data-testid="stMarkdownContainer"] p { font-size: 0 !important; }
+    [data-testid="stFileUploaderDropzone"] [data-testid="stMarkdownContainer"] p::after {
         content: "拖拽文件至此区域" !important;
         font-size: 16px !important;
         font-weight: 600 !important;
         color: var(--text-color) !important; 
     }
-    div[data-testid="stFileUploader"] small { font-size: 0 !important; }
-    div[data-testid="stFileUploader"] small::after {
-        content: "单文件上限 200MB (格式: DOCX, MD, TXT, PPTX)" !important;
-        font-size: 13px !important;
-        color: var(--text-color) !important;
-        opacity: 0.6;
-    }
+    
+    /* 隐藏文件上限提示语 */
+    div[data-testid="stFileUploader"] small { display: none !important; }
     
     /* 11. 【优雅的跑马灯特效】让必读标题多色交替缓慢变色 */
     @keyframes rainbowFlash {
@@ -138,6 +144,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 # === 后台逻辑函数 ===
 def extract_text_content(uploaded_file):
     if not uploaded_file: return ""
@@ -154,13 +161,45 @@ def parse_markdown(md_text):
         lines = slide.strip().split('\n')
         if not lines or lines == ['']: continue
         l_type, title, body, ai_prompt = "正文", "", [], ""
+        
+        tables = []
+        current_table = []
+        in_table = False
+        
         for line in lines:
-            line = line.strip()
-            if line.startswith('[') and line.endswith(']') and not line.startswith('[AI配图:'): l_type = line[1:-1]
-            elif line.startswith('[AI配图:') and line.endswith(']'): ai_prompt = line[7:-1].strip()
-            elif line.startswith('# '): title = line[2:]
-            elif line: body.append(line)
-        parsed_slides.append({'type': l_type, 'title': title, 'body': '\n'.join(body), 'ai_prompt': ai_prompt})
+            line_str = line.strip()
+            # 探测 Markdown 表格特征
+            if line_str.startswith('|') and line_str.endswith('|'):
+                in_table = True
+                # 过滤掉表格分割线
+                if '---' in line_str: continue 
+                row_data = [cell.strip() for cell in line_str.split('|')[1:-1]]
+                current_table.append(row_data)
+            else:
+                if in_table:
+                    tables.append(current_table)
+                    current_table = []
+                    in_table = False
+                
+                if line_str.startswith('[') and line_str.endswith(']') and not line_str.startswith('[AI配图:'): 
+                    l_type = line_str[1:-1]
+                elif line_str.startswith('[AI配图:') and line_str.endswith(']'): 
+                    ai_prompt = line_str[7:-1].strip()
+                elif line_str.startswith('# '): 
+                    title = line_str[2:]
+                elif line_str: 
+                    body.append(line_str)
+                    
+        if in_table and current_table:
+            tables.append(current_table)
+            
+        parsed_slides.append({
+            'type': l_type, 
+            'title': title, 
+            'body': '\n'.join(body), 
+            'ai_prompt': ai_prompt,
+            'tables': tables
+        })
     return parsed_slides
 
 def get_english_translation(chinese_title):
@@ -179,33 +218,22 @@ def get_english_translation(chinese_title):
         if k in chinese_title: return v
     return "CHAPTER OVERVIEW"
 
-# === 新增：API 真实连通性验证函数 ===
 def validate_api_key(api_key, provider, base_url=None):
     try:
         if "智谱" in provider:
-            if "." not in api_key:
-                return False, "❌ 格式错误：智谱 API Key 必须包含小数点 (格式: id.secret)。"
+            if "." not in api_key: return False, "❌ 格式错误：智谱 API Key 必须包含小数点 (格式: id.secret)。"
             client = ZhipuAI(api_key=api_key)
-            # 发送一个极其微小的测试请求，探测云端连通性
-            client.chat.completions.create(
-                model="glm-4-flash", 
-                messages=[{"role": "user", "content": "1"}],
-                max_tokens=1
-            )
+            client.chat.completions.create(model="glm-4-flash", messages=[{"role": "user", "content": "1"}], max_tokens=1)
             return True, "✅ 智谱引擎连接成功，授权已就绪！"
         else:
             client = OpenAI(api_key=api_key, base_url=base_url)
-            # 向 OpenAI 或中转站请求模型列表，探测连通性
             client.models.list()
             return True, "✅ 视觉引擎连接成功，授权已就绪！"
     except Exception as e:
         err_str = str(e).lower()
-        if "401" in err_str or "auth" in err_str or "invalid" in err_str or "api_key" in err_str:
-            return False, "❌ 凭证无效：请检查您的 API Key 是否填写正确或已被封禁！"
-        elif "url" in err_str or "connection" in err_str or "timeout" in err_str or "resolve" in err_str:
-            return False, "❌ 网络错误：无法连接到接口，请检查 Base URL 是否正确填写！"
-        else:
-            return False, f"❌ 验证失败：{e}"
+        if "401" in err_str or "auth" in err_str or "invalid" in err_str or "api_key" in err_str: return False, "❌ 凭证无效：请检查您的 API Key 是否填写正确或已被封禁！"
+        elif "url" in err_str or "connection" in err_str or "timeout" in err_str or "resolve" in err_str: return False, "❌ 网络错误：无法连接到接口，请检查 Base URL 是否正确填写！"
+        else: return False, f"❌ 验证失败：{e}"
 
 def create_ppt(parsed_slides, template_bytes, api_key, ai_provider, base_url=None, model_name=None):
     if not parsed_slides or not template_bytes: return None
@@ -233,7 +261,48 @@ def create_ppt(parsed_slides, template_bytes, api_key, ai_provider, base_url=Non
                 slide = prs.slides.add_slide(prs.slide_layouts[4])
                 slide.placeholders[10].text = slide_data['title']
                 slide.placeholders[11].text = slide_data['body']
-                
+            
+            # === 原生调用 PPT 引擎绘制表格 ===
+            tables = slide_data.get('tables', [])
+            for t_idx, table_data in enumerate(tables):
+                rows = len(table_data)
+                cols = max(len(r) for r in table_data) if rows > 0 else 0
+                if rows > 0 and cols > 0:
+                    left = int(prs.slide_width * 0.1)
+                    if slide_data['body'].strip():
+                        top = int(prs.slide_height * 0.45) + t_idx * int(prs.slide_height * 0.2)
+                    else:
+                        top = int(prs.slide_height * 0.25) + t_idx * int(prs.slide_height * 0.2)
+                        
+                    width = int(prs.slide_width * 0.8)
+                    height = int(prs.slide_height * 0.05 * rows)
+                    
+                    try:
+                        table_shape = slide.shapes.add_table(rows, cols, left, top, width, height)
+                        table = table_shape.table
+                        
+                        for r_idx, row in enumerate(table_data):
+                            for c_idx, cell_val in enumerate(row):
+                                if c_idx < cols:
+                                    cell = table.cell(r_idx, c_idx)
+                                    cell.text = cell_val
+                                    
+                                    if r_idx == 0:
+                                        cell.fill.solid()
+                                        cell.fill.fore_color.rgb = RGBColor(30, 58, 138) 
+                                        for p in cell.text_frame.paragraphs:
+                                            for run in p.runs:
+                                                run.font.bold = True
+                                                run.font.color.rgb = RGBColor(255, 255, 255)
+                                    else:
+                                        cell.fill.solid()
+                                        cell.fill.fore_color.rgb = RGBColor(243, 244, 246) 
+                                        for p in cell.text_frame.paragraphs:
+                                            for run in p.runs:
+                                                run.font.color.rgb = RGBColor(0, 0, 0)
+                    except Exception as e:
+                        print(f"表格生成内部错误: {e}") 
+
             if slide_data['ai_prompt'] and api_key:
                 st.toast(f"🎨 正在呼叫视觉引擎绘制: {slide_data['title']} ...", icon="🤖")
                 img_url = ""
@@ -296,7 +365,6 @@ with st.sidebar.form(key='api_form'):
         
     api_key_input = st.text_input("API 凭证 (API Key)", type="password", placeholder="填入以激活自动画图功能...")
     
-    # === 更新：加入真实云端连通性验证 ===
     submit_btn = st.form_submit_button("✓ 保存并验证配置", use_container_width=True)
     if submit_btn:
         if api_key_input:
@@ -320,7 +388,7 @@ st.markdown("<div class='main-title'>DFM生成引擎</div>", unsafe_allow_html=T
 st.markdown("<div class='sub-title'>自动化设备 DFM 极速演示方案生成器，PPT 排版一键搞定！</div>", unsafe_allow_html=True)
 
 st.info("""
-** 欢迎使用！本系统将为您自动化完成以下工作：**
+**欢迎使用！本系统将为您自动化完成以下工作：**
 1.  **多格式读取**：无缝解析 `Word文档 (.docx)`、`Markdown (.md)` 或纯文本。
 2.  **智能对位排版**：自动匹配公司 PPT 模板，一键套用。
 3.  **专业双语翻译**：内置自动化专属词典，毫秒级生成英文标题过渡页。
@@ -343,9 +411,10 @@ ai_prompt_text = """# Role (角色定位)
    - `[过渡]`：用于每个大章节的开头页。
    - `[左文右图]`：用于需要展示设备结构、布局的页面。
    - `[正文]`：用于纯文字说明或数据分析页面。
-3. 页面标题：紧接版式标签的下一行，必须是标题，以 `# ` 开头（注意 # 后面有一个空格）。
-4. 正文内容：标题下方为正文内容。正文请精简专业，使用项目符号（* 或 -）排版，绝对不要使用复杂的 Markdown 表格或多级嵌套。
-5. AI 配图指令：当版式为 `[左文右图]` 时，请在正文末尾单独起一行，生成提示词：`[AI配图: 一段详细的英文画面描述，要求工业风、3D概念图风格]`。
+3. 页面标题：紧接版式标签的下一行，必须是标题，以 `# ` 开头。
+4. 正文内容：标题下方为正文内容。请精简专业，使用项目符号（* 或 -）排版。
+5. 表格支持：对于 BOM 表、参数表、CT分析等结构化数据，请放心使用标准 Markdown 表格语法（|---|---|）。系统将自动为您渲染为 PPT 原生表格。
+6. AI 配图指令：当版式为 `[左文右图]` 时，请在正文末尾单独起一行，生成提示词：`[AI配图: 一段详细的英文画面描述，要求工业风、3D概念图风格]`。
 
 # 示例标准模板 (请严格仿照此格式输出全文)：
 [封面]
@@ -368,8 +437,14 @@ ai_prompt_text = """# Role (角色定位)
 [AI配图: 3D concept render of a modern automated manufacturing machine, industrial blue and white color, highly detailed]
 ---
 [正文]
-# 节拍分析 (CT)
-* 综合 CT 预估为 20s/pcs，满足客户需求。
+# 核心技术参数表
+以下为设备运行的核心技术指标：
+
+| 参数名称 | 规格标准 | 备注 |
+|---|---|---|
+| 主电源 | 380V / 50Hz | 三相五线制 |
+| 运行节拍 | 20s / pcs | 包含上下料时间 |
+| 定位精度 | ± 0.05 mm | 视觉二次引导 |
 
 # Task (任务)
 请阅读上述规则。现在，我将提供新项目信息，请按严格格式生成DFM方案 Markdown 文本。不需要任何废话。"""
@@ -436,15 +511,16 @@ with st.expander("！！注意！！使用本引擎前必读！！", expanded=Fa
         height=70
     )
     
+    st.markdown("### 📜 完整指令预览：")
     st.code(ai_prompt_text, language="markdown")
 
-st.markdown("#### 01. 导入您的方案内容")
+st.markdown("#### Step 1. 导入您的方案内容")
 with st.container(border=True):
     st.markdown("#####  📂  方式一：直接上传文档文件")
-    uploaded_doc = st.file_uploader("支持 .docx / .md / .txt 格式", type=["docx", "md", "txt"])
+    uploaded_doc = st.file_uploader("占位1", type=["docx", "md", "txt"], label_visibility="collapsed")
     
     st.markdown("#####  ✍️  方式二：输入纯文本")
-    raw_md_text = st.text_area("如果没有文档，也可在此处直接粘贴/输入方案文本...", height=400)
+    raw_md_text = st.text_area("如果没有文档，也可在此处直接粘贴/输入方案文本...", height=400, label_visibility="collapsed")
     
     md_text_to_process = ""
     if uploaded_doc:
@@ -454,18 +530,18 @@ with st.container(border=True):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-st.markdown("#### 02. 上传 PPT 模板")
+st.markdown("#### Step 2. 上传 PPT 模板")
 with st.container(border=True):
-    uploaded_template = st.file_uploader("占位标签", type=["pptx"], label_visibility="collapsed")
+    uploaded_template = st.file_uploader("占位2", type=["pptx"], label_visibility="collapsed")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-st.markdown("#### 03. 一键输出DFM")
+st.markdown("#### Step 3. 一键输出DFM")
 generate_btn = st.button("✨ 启动智能生成引擎 ✨", use_container_width=True)
 
 if generate_btn:
-    if not md_text_to_process: st.error("⚠️ 请在步骤 01 中上传文档或粘贴文本内容！")
-    elif not uploaded_template: st.error("⚠️ 请在步骤 02 中上传 PPT 模板！")
+    if not md_text_to_process: st.error("⚠️ 请在步骤 1 中上传文档或粘贴文本内容！")
+    elif not uploaded_template: st.error("⚠️ 请在步骤 2 中上传 PPT 模板！")
     else:
         with st.spinner('🚀 引擎全速运转中，请稍候...'):
             slides = parse_markdown(md_text_to_process)
